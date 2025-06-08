@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mental Math Genius</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .dark-mode {
+            background-color: #1a202c;
+            color: #e2e8f0;
+        }
+        .light-mode {
+            background-color: #f7fafc;
+            color: #2d3748;
+        }
+        .card-glow {
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+            transition: box-shadow 0.3s ease-in-out;
+        }
+        .card-glow:hover {
+            box-shadow: 0 0 25px rgba(0, 0, 0, 0.2);
+        }
+        .btn-primary {
+            background-image: linear-gradient(to right, #6EE7B7, #34D399);
+            border: none;
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0, 200, 100, 0.3);
+        }
+        .input-glow:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.5);
+        }
+        .progress-bar-container {
+            width: 100%;
+            background-color: #e2e8f0;
+            border-radius: 9999px;
+            height: 12px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #34D399;
+            border-radius: 9999px;
+            transition: width 0.5s ease-in-out;
+        }
+        /* Custom scrollbar for chat */
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .chat-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        .chat-container::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        .chat-container::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .dark-mode .chat-container::-webkit-scrollbar-track {
+            background: #2d3748;
+        }
+        .dark-mode .chat-container::-webkit-scrollbar-thumb {
+            background: #4a5568;
+        }
+        .dark-mode .chat-container::-webkit-scrollbar-thumb:hover {
+            background: #626f82;
+        }
+    </style>
+</head>
+<body class="light-mode min-h-screen flex flex-col justify-center items-center py-8">
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+        let app;
+        let db;
+        let auth;
+        let userId = 'anonymous'; // Default to anonymous
+        let userDocRef;
+        let isAuthReady = false;
+
+        // Global variables provided by Canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        if (firebaseConfig) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+
+            // Listen for authentication state changes
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    console.log("Firebase User ID:", userId);
+                    userDocRef = doc(db, `artifacts/${appId}/users/${userId}/mental_math_scores/user_data`);
+                    await loadUserData();
+                } else {
+                    // Sign in anonymously if no user is found and no custom token is provided
+                    if (!initialAuthToken) {
+                        try {
+                            await signInAnonymously(auth);
+                            console.log("Signed in anonymously.");
+                        } catch (error) {
+                            console.error("Error signing in anonymously:", error);
+                            showMessage("Error signing in. Please refresh the page.", "error");
+                        }
+                    }
+                }
+                isAuthReady = true;
+                // Once auth is ready, ensure UI is updated (e.g., show main content)
+                document.getElementById('userIdDisplay').textContent = `User ID: ${userId}`;
+                if (initialAuthToken && !user) { // Only attempt custom token sign-in if no user is already logged in
+                    try {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        console.log("Signed in with custom token.");
+                    } catch (error) {
+                        console.error("Error signing in with custom token:", error);
+                        showMessage("Error signing in. Please refresh the page.", "error");
+                    }
+                }
+            });
+
+            // Initial sign-in attempt if auth is not already ready and token exists
+            if (!isAuthReady && initialAuthToken) {
+                try {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                    console.log("Attempted sign-in with initial custom token.");
+                } catch (error) {
+                    console.error("Error attempting sign-in with initial custom token:", error);
+                    // Fallback to anonymous if custom token fails for some reason
+                    try {
+                        await signInAnonymously(auth);
+                        console.log("Signed in anonymously as fallback.");
+                    } catch (anonError) {
+                        console.error("Error signing in anonymously as fallback:", anonError);
+                        showMessage("Error signing in. Please refresh the page.", "error");
+                    }
+                }
+            } else if (!isAuthReady && !initialAuthToken) {
+                // If no token and not yet signed in, try anonymous
+                 try {
+                    await signInAnonymously(auth);
+                    console.log("Attempted anonymous sign-in at startup.");
+                } catch (anonError) {
+                    console.error("Error attempting anonymous sign-in at startup:", anonError);
+                    showMessage("Error signing in. Please refresh the page.", "error");
+                }
+            }
+
+        } else {
+            console.error("Firebase config is missing. Data persistence will not work.");
+            showMessage("Firebase not configured. Data persistence is disabled.", "warning");
+        }
+
+        // Global function to save user data
+        window.saveUserData = async (data) => {
+            if (!userDocRef) {
+                console.warn("User document reference not set. Cannot save data.");
+                return;
+            }
+            try {
+                // Fetch existing data to merge, or create new if not exists
+                const docSnap = await getDoc(userDocRef);
+                const existingData = docSnap.exists() ? docSnap.data() : {};
+                const mergedData = { ...existingData, ...data };
+                await setDoc(userDocRef, mergedData);
+                console.log("User data saved successfully:", mergedData);
+            } catch (e) {
+                console.error("Error saving user data: ", e);
+                showMessage("Error saving your progress.", "error");
+            }
+        };
+
+        // Global function to load user data
+        window.loadUserData = async () => {
+            if (!userDocRef) {
+                console.warn("User document reference not set. Cannot load data.");
+                return null;
+            }
+            try {
+                const docSnap = await getDoc(userDocRef);
+                if (docSnap.exists()) {
+                    const userData = docSnap.data();
+                    console.log("User data loaded:", userData);
+                    // Restore settings like dark mode, difficulty
+                    if (userData.darkMode !== undefined) {
+                        document.body.classList.toggle('dark-mode', userData.darkMode);
+                        document.body.classList.toggle('light-mode', !userData.darkMode);
+                    }
+                    if (userData.difficulty) {
+                        document.getElementById('difficultySelect').value = userData.difficulty;
+                        currentDifficulty = userData.difficulty;
+                    }
+                    return userData;
+                } else {
+                    console.log("No such user document!");
+                    return null;
+                }
+            } catch (e) {
+                console.error("Error loading user data: ", e);
+                showMessage("Error loading your saved progress.", "error");
+                return null;
+            }
+        };
+
+        // Expose userId for potential use in app logic (e.g., for public data display if needed)
+        window.getUserId = () => userId;
+
+        // Custom modal message display (replaces alert/confirm)
+        window.showMessage = (message, type = 'info') => {
+            const modal = document.getElementById('messageModal');
+            const modalText = document.getElementById('messageModalText');
+            const modalTitle = document.getElementById('messageModalTitle');
+            const modalIcon = document.getElementById('messageModalIcon');
+
+            modalText.textContent = message;
+            modal.classList.remove('hidden');
+
+            // Set styling based on message type
+            modalTitle.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+            modal.querySelector('.modal-content').classList.remove('bg-green-100', 'bg-yellow-100', 'bg-red-100', 'border-green-400', 'border-yellow-400', 'border-red-400');
+            modalIcon.className = 'text-3xl mr-3'; // Reset icon classes
+
+            if (type === 'success') {
+                modal.querySelector('.modal-content').classList.add('bg-green-100', 'border-green-400');
+                modalIcon.classList.add('text-green-500', 'fa-check-circle');
+            } else if (type === 'warning') {
+                modal.querySelector('.modal-content').classList.add('bg-yellow-100', 'border-yellow-400');
+                modalIcon.classList.add('text-yellow-500', 'fa-exclamation-triangle');
+            } else if (type === 'error') {
+                modal.querySelector('.modal-content').classList.add('bg-red-100', 'border-red-400');
+                modalIcon.classList.add('text-red-500', 'fa-times-circle');
+            } else { // info
+                modal.querySelector('.modal-content').classList.add('bg-blue-100', 'border-blue-400');
+                modalIcon.classList.add('text-blue-500', 'fa-info-circle');
+            }
+        };
+
+        window.closeMessageModal = () => {
+            document.getElementById('messageModal').classList.add('hidden');
+        };
+    </script>
+
+    <div class="relative w-full max-w-4xl p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg card-glow transition-colors duration-300">
+        <h1 class="text-4xl font-bold text-center mb-6 text-gray-800 dark:text-gray-100">Mental Math Genius 🧠</h1>
+        <p class="text-center text-gray-600 dark:text-gray-300 mb-8">Sharpen your mind, one calculation at a time!</p>
+
+        <!-- Dark/Light Mode Toggle -->
+        <button id="themeToggle" class="absolute top-4 right-4 p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 shadow hover:scale-105 transition-transform">
+            <i class="fas fa-sun" id="sunIcon"></i>
+            <i class="fas fa-moon hidden" id="moonIcon"></i>
+        </button>
+
+        <!-- User ID Display -->
+        <div class="absolute top-4 left-4 text-xs text-gray-500 dark:text-gray-400" id="userIdDisplay">User ID: Loading...</div>
+
+        <!-- Main Mode Selection Screen -->
+        <div id="modeSelection" class="text-center space-y-4">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-700 dark:text-gray-200">Choose Your Path</h2>
+            <button id="learnModeBtn" class="w-full sm:w-2/3 md:w-1/2 p-4 rounded-xl btn-primary text-white font-bold text-xl shadow-lg hover:shadow-xl">
+                <i class="fas fa-book mr-2"></i> Learn Mode
+            </button>
+            <button id="practiceModeBtn" class="w-full sm:w-2/3 md:w-1/2 p-4 rounded-xl btn-primary text-white font-bold text-xl shadow-lg hover:shadow-xl">
+                <i class="fas fa-gamepad mr-2"></i> Practice Mode
+            </button>
+
+            <div class="mt-8">
+                <label for="difficultySelect" class="block text-gray-700 dark:text-gray-200 text-lg mb-2">Difficulty:</label>
+                <select id="difficultySelect" class="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-green-500 focus:border-green-500">
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Hard</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Category Selection Screen (Shared for Learn & Practice) -->
+        <div id="categorySelection" class="hidden text-center space-y-4">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-700 dark:text-gray-200">Select a Category</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button class="category-btn w-full p-4 rounded-xl btn-primary text-white font-bold text-lg shadow-lg hover:shadow-xl" data-category="addition">
+                    <i class="fas fa-plus mr-2"></i> Addition
+                </button>
+                <button class="category-btn w-full p-4 rounded-xl btn-primary text-white font-bold text-lg shadow-lg hover:shadow-xl" data-category="multiplication">
+                    <i class="fas fa-times mr-2"></i> Multiplication
+                </button>
+                <button class="category-btn w-full p-4 rounded-xl btn-primary text-white font-bold text-lg shadow-lg hover:shadow-xl" data-category="division">
+                    <i class="fas fa-divide mr-2"></i> Division
+                </button>
+                <button class="category-btn w-full p-4 rounded-xl btn-primary text-white font-bold text-lg shadow-lg hover:shadow-xl" data-category="random">
+                    <i class="fas fa-random mr-2"></i> Random
+                </button>
+            </div>
+            <button id="backToModeSelection" class="mt-6 p-3 rounded-lg bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 hover:bg-gray-400 dark:hover:bg-gray-700 transition-colors">
+                <i class="fas fa-arrow-left mr-2"></i> Back to Modes
+            </button>
+        </div>
+
+        <!-- Learn Mode Screen -->
+        <div id="learnModeScreen" class="hidden text-center">
+            <h2 class="text-3xl font-bold mb-6 text-gray-800 dark:text-gray-100" id="learnCategoryTitle">Learn Mode: Addition</h2>
+
+            <div class="flex flex-col md:flex-row gap-6">
+                <!-- Question Area -->
+                <div class="md:w-1/2 p-6 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-inner card-glow flex flex-col justify-between">
+                    <div>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 text-lg">Sample Question:</p>
+                        <p id="learnQuestion" class="text-5xl font-extrabold text-green-600 dark:text-green-400 mb-8">?</p>
+                        <button id="nextLearnQuestionBtn" class="btn-primary p-3 rounded-lg text-white font-semibold shadow-md hover:shadow-lg">
+                            Next Question <i class="fas fa-arrow-right ml-2"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tips/Guidance Area -->
+                <div class="md:w-1/2 p-6 bg-blue-50 dark:bg-blue-900 rounded-lg shadow-inner card-glow relative">
+                    <h3 class="text-xl font-semibold mb-4 text-blue-800 dark:text-blue-200">Genius Tips:</h3>
+                    <div id="learnTips" class="chat-container h-64 overflow-y-auto text-left text-gray-700 dark:text-gray-200 leading-relaxed custom-scrollbar">
+                        <p class="italic text-gray-500 dark:text-gray-400">Loading tips...</p>
+                    </div>
+                    <div id="learnTipsLoading" class="absolute inset-0 flex items-center justify-center bg-blue-50 dark:bg-blue-900 bg-opacity-75">
+                        <i class="fas fa-spinner fa-spin text-4xl text-blue-600 dark:text-blue-400"></i>
+                    </div>
+                </div>
+            </div>
+
+            <button id="backToCategorySelectionFromLearn" class="mt-8 p-3 rounded-lg bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 hover:bg-gray-400 dark:hover:bg-gray-700 transition-colors">
+                <i class="fas fa-arrow-left mr-2"></i> Back to Categories
+            </button>
+        </div>
+
+        <!-- Practice Mode Screen -->
+        <div id="practiceModeScreen" class="hidden text-center">
+            <h2 class="text-3xl font-bold mb-6 text-gray-800 dark:text-gray-100" id="practiceCategoryTitle">Practice Mode: Addition</h2>
+
+            <div class="flex flex-col md:flex-row gap-6">
+                <!-- Question and Input Area -->
+                <div class="md:w-1/2 p-6 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-inner card-glow flex flex-col items-center justify-center">
+                    <div class="text-center mb-6">
+                        <p class="text-gray-600 dark:text-gray-300 text-lg">Question:</p>
+                        <p id="practiceQuestion" class="text-6xl font-extrabold text-green-600 dark:text-green-400 mb-4">?</p>
+                    </div>
+                    <input type="number" id="answerInput" placeholder="Your Answer"
+                           class="w-full md:w-2/3 p-4 text-center text-3xl rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 input-glow">
+                    <button id="submitAnswerBtn" class="mt-4 p-4 rounded-xl btn-primary text-white font-bold text-xl shadow-lg hover:shadow-xl w-full md:w-2/3">
+                        Submit Answer <i class="fas fa-paper-plane ml-2"></i>
+                    </button>
+                </div>
+
+                <!-- Timer and Scoreboard -->
+                <div class="md:w-1/2 p-6 bg-blue-50 dark:bg-blue-900 rounded-lg shadow-inner card-glow flex flex-col justify-between">
+                    <div>
+                        <div class="flex justify-between items-center mb-4">
+                            <span class="text-lg font-semibold text-blue-800 dark:text-blue-200">Time Left:</span>
+                            <span id="timeLeft" class="text-4xl font-bold text-blue-600 dark:text-blue-400">0:00</span>
+                        </div>
+                        <div class="progress-bar-container mb-6">
+                            <div id="progressBar" class="progress-bar" style="width: 100%;"></div>
+                        </div>
+
+                        <div class="text-left text-lg space-y-2">
+                            <p class="text-green-700 dark:text-green-300"><i class="fas fa-check-circle mr-2"></i> Correct: <span id="correctCount" class="font-bold">0</span></p>
+                            <p class="text-red-700 dark:text-red-300"><i class="fas fa-times-circle mr-2"></i> Incorrect: <span id="incorrectCount" class="font-bold">0</span></p>
+                            <p class="text-yellow-700 dark:text-yellow-300"><i class="fas fa-clock mr-2"></i> Unanswered: <span id="unansweredCount" class="font-bold">0</span></p>
+                            <p class="text-gray-700 dark:text-gray-200"><i class="fas fa-list-ol mr-2"></i> Total Questions: <span id="totalQuestionsCount" class="font-bold">0</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button id="quitPracticeBtn" class="mt-8 p-3 rounded-lg bg-red-300 dark:bg-red-600 text-gray-800 dark:text-gray-200 hover:bg-red-400 dark:hover:bg-red-700 transition-colors">
+                <i class="fas fa-times mr-2"></i> Quit Practice
+            </button>
+        </div>
+
+        <!-- Results Screen -->
+        <div id="resultsScreen" class="hidden text-center">
+            <h2 class="text-3xl font-bold mb-6 text-gray-800 dark:text-gray-100">Practice Results!</h2>
+
+            <div class="p-6 bg-white dark:bg-gray-700 rounded-lg shadow-inner card-glow mb-6">
+                <h3 class="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-200">Performance Summary:</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left text-lg">
+                    <p class="text-gray-700 dark:text-gray-200"><i class="fas fa-hashtag mr-2"></i> Total Questions: <span id="finalTotal" class="font-bold">0</span></p>
+                    <p class="text-green-700 dark:text-green-300"><i class="fas fa-check-circle mr-2"></i> Correct Answers: <span id="finalCorrect" class="font-bold">0</span></p>
+                    <p class="text-red-700 dark:text-red-300"><i class="fas fa-times-circle mr-2"></i> Incorrect Answers: <span id="finalIncorrect" class="font-bold">0</span></p>
+                    <p class="text-yellow-700 dark:text-yellow-300"><i class="fas fa-clock mr-2"></i> Unanswered: <span id="finalUnanswered" class="font-bold">0</span></p>
+                    <p class="text-blue-700 dark:text-blue-300"><i class="fas fa-hourglass-half mr-2"></i> Time Spent: <span id="finalTime" class="font-bold">0s</span></p>
+                </div>
+            </div>
+
+            <div class="p-6 bg-blue-50 dark:bg-blue-900 rounded-lg shadow-inner card-glow mb-6">
+                <h3 class="text-xl font-semibold mb-4 text-blue-800 dark:text-blue-200">Global Genius Rating:</h3>
+                <p id="geniusScoreText" class="text-3xl font-bold text-purple-700 dark:text-purple-400 mb-2">You are currently X% as fast as Einstein in mental math!</p>
+                <p id="geniusRankText" class="text-2xl font-semibold text-purple-600 dark:text-purple-300">Your mental math rank is Genius Level X out of 10.</p>
+                <p id="geniusComparisonText" class="text-lg italic text-gray-600 dark:text-gray-300 mt-4"></p>
+            </div>
+
+            <p id="motivationalQuote" class="text-lg italic text-gray-700 dark:text-gray-200 mt-4 mb-6">"The only way to do great work is to love what you do." - Steve Jobs</p>
+
+            <button id="playAgainBtn" class="btn-primary p-4 rounded-xl text-white font-bold text-xl shadow-lg hover:shadow-xl mr-4">
+                <i class="fas fa-redo mr-2"></i> Play Again!
+            </button>
+            <button id="backToCategorySelectionFromResults" class="p-4 rounded-xl bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 hover:bg-gray-400 dark:hover:bg-gray-700 transition-colors">
+                <i class="fas fa-arrow-left mr-2"></i> Back to Categories
+            </button>
+        </div>
+
+        <!-- Custom Message Modal -->
+        <div id="messageModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+            <div class="modal-content bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8 max-w-sm w-full border-l-4 card-glow">
+                <div class="flex items-center mb-4">
+                    <i id="messageModalIcon" class="text-3xl mr-3"></i>
+                    <h3 id="messageModalTitle" class="text-xl font-semibold text-gray-800 dark:text-gray-100"></h3>
+                </div>
+                <p id="messageModalText" class="text-gray-700 dark:text-gray-200 mb-6"></p>
+                <button onclick="closeMessageModal()" class="w-full p-3 rounded-lg btn-primary text-white font-bold shadow-md hover:shadow-lg">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sound Effects -->
+    <audio id="correctSound" src="https://assets.mixkit.co/sfx/preview/mixkit-positive-notification-ding-2.mp3"></audio>
+    <audio id="incorrectSound" src="https://assets.mixkit.co/sfx/preview/mixkit-wrong-answer-bass-buzzer-945.mp3"></audio>
+    <audio id="timeoutSound" src="https://assets.mixkit.co/sfx/preview/mixkit-bell-tone-alert-947.mp3"></audio>
+
+    <script type="module">
+        // Firebase imports are handled at the top of the body for module scope.
+
+        // --- Core App Variables ---
+        let currentMode = ''; // 'learn' or 'practice'
+        let currentCategory = '';
+        let currentDifficulty = 'easy'; // Default difficulty
+
+        // Practice Mode Variables
+        let practiceScore = { correct: 0, incorrect: 0, unanswered: 0, totalQuestions: 0 };
+        let currentQuestion = {};
+        let practiceTimer;
+        let timeLeftForQuestion;
+        let totalPracticeTime = 0; // Cumulative time spent in practice
+
+        const QUESTION_TIME_LIMIT = 10; // seconds per question
+
+        // DOM Elements
+        const modeSelectionScreen = document.getElementById('modeSelection');
+        const categorySelectionScreen = document.getElementById('categorySelection');
+        const learnModeScreen = document.getElementById('learnModeScreen');
+        const practiceModeScreen = document.getElementById('practiceModeScreen');
+        const resultsScreen = document.getElementById('resultsScreen');
+
+        const learnModeBtn = document.getElementById('learnModeBtn');
+        const practiceModeBtn = document.getElementById('practiceModeBtn');
+        const categoryButtons = document.querySelectorAll('.category-btn');
+        const backToModeSelectionBtn = document.getElementById('backToModeSelection');
+        const backToCategorySelectionFromLearnBtn = document.getElementById('backToCategorySelectionFromLearn');
+        const backToCategorySelectionFromResultsBtn = document.getElementById('backToCategorySelectionFromResults');
+
+        const learnCategoryTitle = document.getElementById('learnCategoryTitle');
+        const learnQuestionEl = document.getElementById('learnQuestion');
+        const learnTipsEl = document.getElementById('learnTips');
+        const learnTipsLoadingEl = document.getElementById('learnTipsLoading');
+        const nextLearnQuestionBtn = document.getElementById('nextLearnQuestionBtn');
+
+        const practiceCategoryTitle = document.getElementById('practiceCategoryTitle');
+        const practiceQuestionEl = document.getElementById('practiceQuestion');
+        const answerInput = document.getElementById('answerInput');
+        const submitAnswerBtn = document.getElementById('submitAnswerBtn');
+        const timeLeftEl = document.getElementById('timeLeft');
+        const progressBar = document.getElementById('progressBar');
+        const correctCountEl = document.getElementById('correctCount');
+        const incorrectCountEl = document.getElementById('incorrectCount');
+        const unansweredCountEl = document.getElementById('unansweredCount');
+        const totalQuestionsCountEl = document.getElementById('totalQuestionsCount');
+        const quitPracticeBtn = document.getElementById('quitPracticeBtn');
+
+        const finalTotalEl = document.getElementById('finalTotal');
+        const finalCorrectEl = document.getElementById('finalCorrect');
+        const finalIncorrectEl = document.getElementById('finalIncorrect');
+        const finalUnansweredEl = document.getElementById('finalUnanswered');
+        const finalTimeEl = document.getElementById('finalTime');
+        const geniusScoreTextEl = document.getElementById('geniusScoreText');
+        const geniusRankTextEl = document.getElementById('geniusRankText');
+        const geniusComparisonTextEl = document.getElementById('geniusComparisonText');
+        const motivationalQuoteEl = document.getElementById('motivationalQuote');
+        const playAgainBtn = document.getElementById('playAgainBtn');
+
+        const difficultySelect = document.getElementById('difficultySelect');
+        const themeToggle = document.getElementById('themeToggle');
+        const sunIcon = document.getElementById('sunIcon');
+        const moonIcon = document.getElementById('moonIcon');
+
+        // Sound Effects
+        const correctSound = document.getElementById('correctSound');
+        const incorrectSound = document.getElementById('incorrectSound');
+        const timeoutSound = document.getElementById('timeoutSound');
+
+        const motivationalQuotes = [
+            "“The only way to do great work is to love what you do.” - Steve Jobs",
+            "“Success is not final, failure is not fatal: it is the courage to continue that counts.” - Winston Churchill",
+            "“The mind is everything. What you think you become.” - Buddha",
+            "“Strive not to be a success, but rather to be of value.” - Albert Einstein",
+            "“Believe you can and you're halfway there.” - Theodore Roosevelt",
+            "“It always seems impossible until it's done.” - Nelson Mandela"
+        ];
+
+        // --- Helper Functions ---
+
+        function showScreen(screen) {
+            modeSelectionScreen.classList.add('hidden');
+            categorySelectionScreen.classList.add('hidden');
+            learnModeScreen.classList.add('hidden');
+            practiceModeScreen.classList.add('hidden');
+            resultsScreen.classList.add('hidden');
+            screen.classList.remove('hidden');
+        }
+
+        function generateQuestion(category, difficulty) {
+            let num1, num2, question, answer;
+
+            const getRandomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+            switch (category) {
+                case 'addition':
+                    if (difficulty === 'easy') {
+                        num1 = getRandomInt(10, 99);
+                        num2 = getRandomInt(10, 99);
+                    } else if (difficulty === 'medium') {
+                        num1 = getRandomInt(100, 999);
+                        num2 = getRandomInt(100, 999);
+                    } else { // hard
+                        num1 = getRandomInt(1000, 9999);
+                        num2 = getRandomInt(1000, 9999);
+                    }
+                    question = `${num1} + ${num2}`;
+                    answer = num1 + num2;
+                    break;
+                case 'multiplication':
+                    if (difficulty === 'easy') {
+                        num1 = getRandomInt(2, 12);
+                        num2 = getRandomInt(2, 12);
+                    } else if (difficulty === 'medium') {
+                        num1 = getRandomInt(10, 30);
+                        num2 = getRandomInt(10, 30);
+                    } else { // hard
+                        num1 = getRandomInt(20, 99);
+                        num2 = getRandomInt(2, 12); // Keep one number smaller for mental calculation, or adjust for truly hard
+                    }
+                    question = `${num1} × ${num2}`;
+                    answer = num1 * num2;
+                    break;
+                case 'division':
+                    if (difficulty === 'easy') {
+                        num2 = getRandomInt(2, 10);
+                        answer = getRandomInt(2, 12);
+                    } else if (difficulty === 'medium') {
+                        num2 = getRandomInt(5, 20);
+                        answer = getRandomInt(5, 20);
+                    } else { // hard
+                        num2 = getRandomInt(10, 30);
+                        answer = getRandomInt(10, 30);
+                    }
+                    num1 = num2 * answer; // Ensure integer division
+                    question = `${num1} ÷ ${num2}`;
+                    break;
+                case 'random':
+                    const types = ['addition', 'multiplication', 'division', 'square_root', 'percentage'];
+                    const randomType = types[getRandomInt(0, types.length - 1)];
+
+                    if (randomType === 'square_root') {
+                        answer = getRandomInt(5, difficulty === 'easy' ? 12 : (difficulty === 'medium' ? 20 : 30));
+                        num1 = answer * answer;
+                        question = `√${num1}`;
+                    } else if (randomType === 'percentage') {
+                        num1 = getRandomInt(50, difficulty === 'easy' ? 200 : (difficulty === 'medium' ? 500 : 1000));
+                        num2 = getRandomInt(5, difficulty === 'easy' ? 20 : (difficulty === 'medium' ? 50 : 100)); // Percentage value
+                        question = `${num2}% of ${num1}`;
+                        answer = (num1 * num2) / 100;
+                    } else {
+                        // Fallback to one of the basic operations
+                        return generateQuestion(randomType, difficulty);
+                    }
+                    break;
+            }
+            return { question, answer };
+        }
+
+        async function getGrokTips(question, category) {
+            learnTipsLoadingEl.classList.remove('hidden');
+            learnTipsEl.innerHTML = '<p class="italic text-gray-500 dark:text-gray-400">Thinking like a genius...</p>';
+
+            const prompt = `Given the math problem "${question}" in the category of ${category}, provide a concise mental math technique or tip to solve it quickly. Focus on breaking down the problem or a common trick. For example, for "47 x 6", suggest "Break into 40 x 6 + 7 x 6". For "sqrt(144)", suggest "Think: What number times itself gives 144?". If it's a percentage, explain a quick way to calculate percentages.`;
+
+            let chatHistory = [];
+            chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+            const payload = { contents: chatHistory };
+            const apiKey = ""; // Canvas will automatically provide the API key at runtime
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    learnTipsEl.innerHTML = `<p>${text}</p>`;
+                } else {
+                    learnTipsEl.innerHTML = '<p class="text-red-500">Could not fetch tips. Please try again.</p>';
+                    console.error("Unexpected API response structure:", result);
+                }
+            } catch (error) {
+                learnTipsEl.innerHTML = '<p class="text-red-500">Failed to connect for tips. Check your network or try again.</p>';
+                console.error("Error calling Grok API:", error);
+            } finally {
+                learnTipsLoadingEl.classList.add('hidden');
+            }
+        }
+
+        // --- Event Listeners ---
+
+        // Mode Selection
+        learnModeBtn.addEventListener('click', () => {
+            currentMode = 'learn';
+            showScreen(categorySelectionScreen);
+        });
+
+        practiceModeBtn.addEventListener('click', () => {
+            currentMode = 'practice';
+            showScreen(categorySelectionScreen);
+        });
+
+        // Category Selection
+        categoryButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                currentCategory = button.dataset.category;
+                if (currentMode === 'learn') {
+                    startLearnMode();
+                } else { // practice
+                    startPracticeMode();
+                }
+            });
+        });
+
+        backToModeSelectionBtn.addEventListener('click', () => {
+            showScreen(modeSelectionScreen);
+        });
+
+        backToCategorySelectionFromLearnBtn.addEventListener('click', () => {
+            showScreen(categorySelectionScreen);
+            learnTipsEl.innerHTML = '<p class="italic text-gray-500 dark:text-gray-400">Loading tips...</p>'; // Reset tips
+        });
+
+        backToCategorySelectionFromResultsBtn.addEventListener('click', () => {
+            showScreen(categorySelectionScreen);
+        });
+
+        // Learn Mode Logic
+        async function startLearnMode() {
+            showScreen(learnModeScreen);
+            learnCategoryTitle.textContent = `Learn Mode: ${currentCategory.charAt(0).toUpperCase() + currentCategory.slice(1)}`;
+            await displayLearnQuestion();
+        }
+
+        async function displayLearnQuestion() {
+            const { question, answer } = generateQuestion(currentCategory, currentDifficulty);
+            learnQuestionEl.textContent = question;
+            // You can store the answer for reference, but it's not checked in learn mode
+            // For learn mode, we fetch tips based on the generated question
+            await getGrokTips(question, currentCategory);
+        }
+
+        nextLearnQuestionBtn.addEventListener('click', displayLearnQuestion);
+
+
+        // Practice Mode Logic
+        function startPracticeMode() {
+            showScreen(practiceModeScreen);
+            practiceCategoryTitle.textContent = `Practice Mode: ${currentCategory.charAt(0).toUpperCase() + currentCategory.slice(1)}`;
+            practiceScore = { correct: 0, incorrect: 0, unanswered: 0, totalQuestions: 0 };
+            totalPracticeTime = 0;
+            updatePracticeScoreboard();
+            answerInput.value = '';
+            answerInput.focus();
+            generateNextPracticeQuestion();
+        }
+
+        function generateNextPracticeQuestion() {
+            practiceScore.totalQuestions++;
+            totalQuestionsCountEl.textContent = practiceScore.totalQuestions;
+            currentQuestion = generateQuestion(currentCategory, currentDifficulty);
+            practiceQuestionEl.textContent = currentQuestion.question;
+            answerInput.value = '';
+            answerInput.focus();
+            startQuestionTimer();
+        }
+
+        function startQuestionTimer() {
+            clearInterval(practiceTimer);
+            timeLeftForQuestion = QUESTION_TIME_LIMIT;
+            updateTimerDisplay();
+            progressBar.style.width = '100%'; // Reset progress bar
+
+            practiceTimer = setInterval(() => {
+                timeLeftForQuestion--;
+                totalPracticeTime++; // Increment total practice time
+                updateTimerDisplay();
+                progressBar.style.width = `${(timeLeftForQuestion / QUESTION_TIME_LIMIT) * 100}%`;
+
+                if (timeLeftForQuestion <= 0) {
+                    clearInterval(practiceTimer);
+                    practiceScore.unanswered++;
+                    timeoutSound.play();
+                    showMessage("Time's up! The answer was " + currentQuestion.answer, "warning");
+                    updatePracticeScoreboard();
+                    setTimeout(generateNextPracticeQuestion, 1500); // Give a moment to read the message
+                }
+            }, 1000);
+        }
+
+        function updateTimerDisplay() {
+            const minutes = Math.floor(timeLeftForQuestion / 60);
+            const seconds = timeLeftForQuestion % 60;
+            timeLeftEl.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+        }
+
+        function updatePracticeScoreboard() {
+            correctCountEl.textContent = practiceScore.correct;
+            incorrectCountEl.textContent = practiceScore.incorrect;
+            unansweredCountEl.textContent = practiceScore.unanswered;
+        }
+
+        submitAnswerBtn.addEventListener('click', checkAnswer);
+        answerInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                checkAnswer();
+            }
+        });
+
+        function checkAnswer() {
+            clearInterval(practiceTimer);
+            const userAnswer = parseFloat(answerInput.value);
+
+            if (isNaN(userAnswer)) {
+                showMessage("Please enter a valid number.", "error");
+                startQuestionTimer(); // Restart timer if input is invalid
+                return;
+            }
+
+            // For percentage and square root questions, answers might be floats, round to 2 decimal places
+            const expectedAnswer = typeof currentQuestion.answer === 'number' ? Math.round(currentQuestion.answer * 100) / 100 : currentQuestion.answer;
+            const isCorrect = userAnswer === expectedAnswer;
+
+            if (isCorrect) {
+                practiceScore.correct++;
+                correctSound.play();
+                showMessage("Correct!", "success");
+            } else {
+                practiceScore.incorrect++;
+                incorrectSound.play();
+                showMessage(`Incorrect. The answer was ${expectedAnswer}`, "error");
+            }
+            updatePracticeScoreboard();
+
+            // Decide whether to continue or end practice (e.g., after N questions, or after a timer)
+            // For now, let's just go to the next question after a short delay
+            setTimeout(generateNextPracticeQuestion, 1500);
+        }
+
+        quitPracticeBtn.addEventListener('click', endPractice);
+
+        function endPractice() {
+            clearInterval(practiceTimer); // Ensure timer is stopped
+            showResults();
+        }
+
+        // Results Screen Logic
+        function showResults() {
+            showScreen(resultsScreen);
+
+            finalTotalEl.textContent = practiceScore.totalQuestions;
+            finalCorrectEl.textContent = practiceScore.correct;
+            finalIncorrectEl.textContent = practiceScore.incorrect;
+            finalUnansweredEl.textContent = practiceScore.unanswered;
+            finalTimeEl.textContent = `${totalPracticeTime}s`;
+
+            calculateGeniusScore();
+            motivationalQuoteEl.textContent = motivationalQuotes[Math.floor(Math.random() * motivationalQuotes.length)];
+
+            // Save user data to Firestore
+            const currentUserId = window.getUserId();
+            if (currentUserId !== 'anonymous') { // Only save if a user is authenticated
+                window.saveUserData({
+                    lastCategory: currentCategory,
+                    lastDifficulty: currentDifficulty,
+                    lastScore: practiceScore,
+                    totalTime: totalPracticeTime,
+                    lastGeniusScore: geniusScoreTextEl.textContent,
+                    lastGeniusRank: geniusRankTextEl.textContent,
+                    timestamp: new Date().toISOString()
+                });
+            } else {
+                showMessage("You are currently signed in anonymously. Your progress will not be saved permanently. Sign in for persistence!", "info");
+            }
+        }
+
+        function calculateGeniusScore() {
+            const totalAnswered = practiceScore.correct + practiceScore.incorrect;
+            let accuracy = totalAnswered > 0 ? (practiceScore.correct / totalAnswered) : 0;
+            let speed = practiceScore.totalQuestions > 0 ? (practiceScore.totalQuestions / totalPracticeTime) : 0; // questions per second
+
+            // Normalize scores for a 0-100 scale (adjust these multipliers for desired difficulty/spread)
+            const accuracyScore = accuracy * 100;
+            const speedScore = Math.min(speed * 20, 100); // Max 100, adjust 20 for how fast you expect users
+
+            const overallScore = (accuracyScore * 0.7) + (speedScore * 0.3); // 70% accuracy, 30% speed
+            const scaledOverallScore = Math.min(Math.max(overallScore, 0), 100); // Clamp between 0 and 100
+
+            geniusScoreTextEl.textContent = `You are currently ${scaledOverallScore.toFixed(0)}% as fast as Einstein in mental math!`;
+
+            let geniusRank = 0;
+            let geniusComparison = "";
+
+            if (scaledOverallScore < 20) {
+                geniusRank = 0;
+                geniusComparison = "Keep practicing! Every step is progress.";
+            } else if (scaledOverallScore < 40) {
+                geniusRank = 5;
+                geniusComparison = "You're getting there! With practice, you'll reach above average.";
+            } else if (scaledOverallScore < 60) {
+                geniusRank = 7;
+                geniusComparison = "Great job! You're performing like a very smart individual.";
+            } else if (scaledOverallScore < 80) {
+                geniusRank = 9;
+                geniusComparison = "Amazing! You're operating at Genius Level, approaching the great minds.";
+            } else {
+                geniusRank = 10;
+                geniusComparison = "Absolutely brilliant! You're an Elite Genius, in the top 0.1%!";
+            }
+            geniusRankTextEl.textContent = `Your mental math rank is Genius Level ${geniusRank} out of 10.`;
+            geniusComparisonTextEl.textContent = geniusComparison;
+        }
+
+        playAgainBtn.addEventListener('click', startPracticeMode); // Play again goes directly to practice with current category
+
+        // --- Global Settings ---
+        difficultySelect.addEventListener('change', (e) => {
+            currentDifficulty = e.target.value;
+            window.saveUserData({ difficulty: currentDifficulty }); // Save difficulty setting
+            showMessage(`Difficulty set to ${currentDifficulty.charAt(0).toUpperCase() + currentDifficulty.slice(1)}.`);
+        });
+
+        themeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            document.body.classList.toggle('light-mode');
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            sunIcon.classList.toggle('hidden', isDarkMode);
+            moonIcon.classList.toggle('hidden', !isDarkMode);
+            window.saveUserData({ darkMode: isDarkMode }); // Save theme setting
+        });
+
+        // Initialize theme based on saved preference or default to light
+        function initializeTheme() {
+            const isDarkMode = localStorage.getItem('darkMode') === 'true';
+            document.body.classList.toggle('dark-mode', isDarkMode);
+            document.body.classList.toggle('light-mode', !isDarkMode);
+            sunIcon.classList.toggle('hidden', isDarkMode);
+            moonIcon.classList.toggle('hidden', !isDarkMode);
+        }
+
+        // Initialize app
+        window.onload = async () => {
+            initializeTheme(); // Apply theme first
+            // Firebase auth state listener handles initial data load
+            // Ensure initial screen is shown
+            showScreen(modeSelectionScreen);
+            // Load user data to restore settings like difficulty
+            const savedData = await window.loadUserData();
+            if (savedData && savedData.difficulty) {
+                difficultySelect.value = savedData.difficulty;
+                currentDifficulty = savedData.difficulty;
+            }
+        };
+
+        // Ensure a user ID is always displayed, even if anonymous
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                document.getElementById('userIdDisplay').textContent = `User ID: ${user.uid}`;
+            } else {
+                // If not authenticated, a random UUID is used (set earlier or could be regenerated here)
+                // For anonymous sign-in, the UID from `signInAnonymously` will be used.
+                // This fallback is mostly for cases where Firebase might not even initialize or anonymous fails.
+                 document.getElementById('userIdDisplay').textContent = `User ID: ${window.getUserId()}`;
+            }
+        });
+
+    </script>
+</body>
+</html>
